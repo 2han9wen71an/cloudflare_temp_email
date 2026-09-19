@@ -132,6 +132,7 @@ const existingSchemaGuards = {
   "2025-12-27-source-meta.sql": () =>
     columnExists("address", "source_meta") && indexExists("idx_address_source_meta"),
   "2026-04-03-raw-blob.sql": () => columnExists("raw_mails", "raw_blob"),
+  "2026-08-30-mail-read-status.sql": () => columnExists("raw_mails", "is_unread"),
 };
 
 executeSql(
