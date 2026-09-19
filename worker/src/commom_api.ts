@@ -4,6 +4,7 @@ import utils from './utils';
 import { CONSTANTS } from './constants';
 import { isS3Enabled } from './mails_api/s3_attachment';
 import { isAnySendMailEnabled } from './common';
+import { getWebhookAttachment } from './open_api/webhook_attachment';
 
 const api = new Hono<HonoCustomType>
 
@@ -25,7 +26,7 @@ api.get('/open_api/settings', async (c) => {
         "title": c.env.TITLE,
         "announcement": utils.getStringValue(c.env.ANNOUNCEMENT),
         "alwaysShowAnnouncement": utils.getBooleanValue(c.env.ALWAYS_SHOW_ANNOUNCEMENT),
-        "prefix": utils.getStringValue(c.env.PREFIX),
+        "prefix": utils.trimLower(c.env.PREFIX),
         "addressRegex": utils.getStringValue(c.env.ADDRESS_REGEX),
         "minAddressLen": utils.getIntValue(c.env.MIN_ADDRESS_LEN, 1),
         "maxAddressLen": utils.getIntValue(c.env.MAX_ADDRESS_LEN, 30),
@@ -39,6 +40,7 @@ api.get('/open_api/settings', async (c) => {
         "disableAnonymousUserCreateEmail": utils.getBooleanValue(c.env.DISABLE_ANONYMOUS_USER_CREATE_EMAIL),
         "disableCustomAddressName": utils.getBooleanValue(c.env.DISABLE_CUSTOM_ADDRESS_NAME),
         "enableUserDeleteEmail": utils.getBooleanValue(c.env.ENABLE_USER_DELETE_EMAIL),
+        "enableMailReadStatus": utils.getBooleanValue(c.env.ENABLE_MAIL_READ_STATUS),
         "enableAutoReply": utils.getBooleanValue(c.env.ENABLE_AUTO_REPLY),
         "enableIndexAbout": utils.getBooleanValue(c.env.ENABLE_INDEX_ABOUT),
         "copyright": c.env.COPYRIGHT,
@@ -48,9 +50,12 @@ api.get('/open_api/settings', async (c) => {
         "enableSendMail": isAnySendMailEnabled(c),
         "version": CONSTANTS.VERSION,
         "showGithub": !utils.getBooleanValue(c.env.DISABLE_SHOW_GITHUB),
+        "showGithubForUser": !utils.getBooleanValue(c.env.DISABLE_SHOW_GITHUB_FOR_USER),
         "disableAdminPasswordCheck": utils.getBooleanValue(c.env.DISABLE_ADMIN_PASSWORD_CHECK),
         "enableAddressPassword": utils.getBooleanValue(c.env.ENABLE_ADDRESS_PASSWORD),
         "enableAgentEmailInfo": utils.getBooleanValue(c.env.ENABLE_AGENT_EMAIL_INFO),
+        "enableRedeemCode": utils.getBooleanValue(c.env.ENABLE_REDEEM_CODE),
+        "redeemCodeUrl": utils.getStringValue(c.env.REDEEM_CODE_URL),
         "smtpImapProxyConfig": {
             "smtp": {
                 "host": utils.getStringValue(smtpProxyConfig.host),
@@ -67,5 +72,7 @@ api.get('/open_api/settings', async (c) => {
         "enableGlobalTurnstileCheck": utils.isGlobalTurnstileEnabled(c)
     });
 })
+
+api.get('/open_api/a/:mail_id/:index/:expires/:signature', getWebhookAttachment)
 
 export { api }

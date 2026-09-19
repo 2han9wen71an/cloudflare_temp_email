@@ -48,7 +48,7 @@ async function receiveGzipMail(
     `--${boundary}--`,
   ].join('\r\n');
 
-  const res = await ctx.post(`${WORKER_GZIP_URL}/admin/test/receive_mail`, {
+  const res = await ctx.post(`${WORKER_GZIP_URL}/__test/receive_mail`, {
     data: { from, to: address, raw },
   });
   if (!res.ok()) throw new Error(`Failed to receive mail: ${res.status()} ${await res.text()}`);
@@ -74,7 +74,7 @@ async function seedPlaintextMail(
     opts.text || 'Hello plaintext from E2E',
   ].join('\r\n');
 
-  const res = await ctx.post(`${WORKER_GZIP_URL}/admin/test/seed_mail`, {
+  const res = await ctx.post(`${WORKER_GZIP_URL}/__test/seed_mail`, {
     data: { address, source: from, raw, message_id: messageId },
   });
   if (!res.ok()) throw new Error(`Failed to seed mail: ${res.status()} ${await res.text()}`);
@@ -135,6 +135,34 @@ test.describe('Mail Gzip Storage', () => {
       const mail = await detailRes.json();
       expect(mail.raw).toContain('Gzip Detail Test');
       expect(mail.raw).toContain('<b>bold gzip</b>');
+    } finally {
+      await deleteGzipAddress(request, jwt);
+    }
+  });
+
+  test('gzip-compressed mail is readable through admin detail API', async ({ request }) => {
+    const { jwt, address } = await createGzipAddress(request, 'gzip-admin-detail');
+    try {
+      await receiveGzipMail(request, address, {
+        subject: 'Gzip Admin Detail Test',
+        text: 'admin compressed content',
+      });
+
+      const listRes = await request.get(`${WORKER_GZIP_URL}/api/mails?limit=10&offset=0`, {
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      const { results } = await listRes.json();
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      const mailId = results[0].id;
+
+      const detailRes = await request.get(`${WORKER_GZIP_URL}/admin/mails/${mailId}`, {
+        headers: { 'x-admin-auth': 'e2e-admin-pass' },
+      });
+      expect(detailRes.ok()).toBe(true);
+      const mail = await detailRes.json();
+      expect(mail.raw).toContain('Gzip Admin Detail Test');
+      expect(mail.raw).toContain('admin compressed content');
+      expect(mail.raw_blob).toBeUndefined();
     } finally {
       await deleteGzipAddress(request, jwt);
     }

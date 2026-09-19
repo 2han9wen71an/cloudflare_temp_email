@@ -2,11 +2,12 @@ import { Context } from 'hono';
 import { Jwt } from 'hono/utils/jwt'
 import { WorkerMailerOptions } from 'worker-mailer';
 
-import { getBooleanValue, getDomains, getStringArray, getStringValue, getIntValue, getUserRoles, getDefaultDomains, getJsonSetting, getAnotherWorkerList, hashPassword, getJsonObjectValue, getRandomSubdomainDomains } from './utils';
+import { getBooleanValue, getDomains, getStringArray, getStringValue, getIntValue, getUserRoles, getDefaultDomains, getJsonSetting, getAnotherWorkerList, hashPassword, getJsonObjectValue, getRandomSubdomainDomains, getDomainMapValue, isDomainOrSubdomain, normalizeDomains, trimLower } from './utils';
 import { unbindTelegramByAddress } from './telegram_api/common';
 import { CONSTANTS } from './constants';
-import { AddressCreationSettings, AdminWebhookSettings, WebhookMail, WebhookSettings } from './models';
+import { AddressCreationSettings, AdminWebhookSettings, ExtractResult, WebhookMail, WebhookSettings } from './models';
 import i18n from './i18n';
+import { formatWebhookBody, getWebhookAttachments } from './utils/webhook';
 
 const DEFAULT_NAME_REGEX = /[^a-z0-9]/g;
 const DEFAULT_RANDOM_SUBDOMAIN_LENGTH = 8;
@@ -15,7 +16,7 @@ const MAX_DOMAIN_LENGTH = 253;
 const DOMAIN_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 const normalizeDomainValue = (domain: string): string => {
-    return domain.trim().toLowerCase();
+    return trimLower(domain);
 }
 
 const isValidDomainLabel = (label: string): boolean => {
@@ -41,7 +42,7 @@ export const isSendMailEnabled = (
 
     // Check SMTP config for domain
     const smtpConfigMap = getJsonObjectValue<Record<string, WorkerMailerOptions>>(c.env.SMTP_CONFIG);
-    if (smtpConfigMap && smtpConfigMap[mailDomain]) return true;
+    if (getDomainMapValue(smtpConfigMap, mailDomain)) return true;
 
     // Check SEND_MAIL binding
     if (isSendMailBindingEnabled(c, mailDomain)) return true;
@@ -56,8 +57,7 @@ export const isSendMailBindingEnabled = (
     if (!c.env.SEND_MAIL) {
         return false;
     }
-    const sendMailDomains = getStringArray(c.env.SEND_MAIL_DOMAINS)
-        .map((domain) => normalizeDomainValue(domain));
+    const sendMailDomains = normalizeDomains(getStringArray(c.env.SEND_MAIL_DOMAINS));
     if (sendMailDomains.length === 0) {
         return true;
     }
@@ -247,14 +247,42 @@ export function updateAddressUpdatedAt(
     if (!address) {
         return;
     }
+    // Skip activity timestamp writes when activity tracking is disabled.
+    if (getBooleanValue(c.env.DISABLE_ADDRESS_UPDATED_AT)) return;
     // update address updated_at asynchronously
     c.executionCtx.waitUntil((async () => {
         try {
             await c.env.DB.prepare(
-                `UPDATE address SET updated_at = datetime('now') where name = ?`
+                `UPDATE address SET updated_at = datetime('now')`
+                + ` WHERE name = ?`
+                + ` AND (updated_at IS NULL OR updated_at < datetime('now', '-1 day'))`
             ).bind(address).run();
         } catch (e) {
-            console.warn("[updateAddressUpdatedAt] failed:", address, e);
+            const errorName = e instanceof Error ? e.name : "UnknownError";
+            console.warn("[updateAddressUpdatedAt] failed:", errorName);
+        }
+    })());
+}
+
+export function updateUserAddressesUpdatedAt(
+    c: Context<HonoCustomType>,
+    userId: number | string | undefined | null
+): void {
+    if (!userId) {
+        return;
+    }
+    // Apply the same activity tracking switch to bulk updates.
+    if (getBooleanValue(c.env.DISABLE_ADDRESS_UPDATED_AT)) return;
+    c.executionCtx.waitUntil((async () => {
+        try {
+            await c.env.DB.prepare(
+                `UPDATE address SET updated_at = datetime('now')`
+                + ` WHERE id IN (SELECT address_id FROM users_address WHERE user_id = ?)`
+                + ` AND (updated_at IS NULL OR updated_at < datetime('now', '-1 day'))`
+            ).bind(userId).run();
+        } catch (e) {
+            const errorName = e instanceof Error ? e.name : "UnknownError";
+            console.warn("[updateUserAddressesUpdatedAt] failed:", errorName);
         }
     })());
 }
@@ -369,9 +397,9 @@ export const newAddress = async (
     }
     // create address with prefix
     if (typeof addressPrefix === "string") {
-        name = addressPrefix.trim() + name;
+        name = trimLower(addressPrefix) + name;
     } else if (enablePrefix) {
-        name = getStringValue(c.env.PREFIX).trim() + name;
+        name = trimLower(c.env.PREFIX) + name;
     }
     // check domain
     const allowDomains = checkAllowDomains ? await getAllowDomains(c) : getDomains(c);
@@ -387,8 +415,12 @@ export const newAddress = async (
         domain = normalizeDomainValue(domain);
     }
     const { effectiveEnabled: enableSubdomainMatch } = await getAddressCreationSubdomainMatchStatus(c);
+    const allowManualSubdomain = domain
+        ? allowDomains.some((baseDomain) =>
+            allowRandomSubdomainForDomain(c, baseDomain) && isDomainOrSubdomain(domain, baseDomain))
+        : false;
     const matchedAllowDomain = domain
-        ? findMatchedAllowedDomain(domain, allowDomains, enableSubdomainMatch)
+        ? findMatchedAllowedDomain(domain, allowDomains, enableSubdomainMatch || allowManualSubdomain)
         : null;
     // check domain is valid
     if (!domain || !matchedAllowDomain) {
@@ -467,22 +499,34 @@ export const cleanup = async (
     cleanType: string | undefined | null,
     cleanDays: number | undefined | null
 ): Promise<boolean> => {
+    // Frozen activity timestamps cannot reliably identify inactive addresses.
+    if (cleanType === "inactiveAddress" && getBooleanValue(c.env.DISABLE_ADDRESS_UPDATED_AT)) {
+        return false;
+    }
     const msgs = i18n.getMessagesbyContext(c);
     if (!cleanType || typeof cleanDays !== 'number' || cleanDays < 0 || cleanDays > 1000) {
         throw new Error(msgs.InvalidCleanupConfigMsg)
+    }
+    let cleanupBatchSize = getIntValue(c.env.CLEANUP_BATCH_SIZE, 3000);
+    if (!Number.isInteger(cleanupBatchSize) || cleanupBatchSize < 1 || cleanupBatchSize > 5000) {
+        cleanupBatchSize = 3000;
     }
     console.log(`Cleanup ${cleanType} before ${cleanDays} days`);
     switch (cleanType) {
         case "inactiveAddress":
             await batchDeleteAddressWithData(
                 c,
-                `updated_at < datetime('now', '-${cleanDays} day')`
+                `id IN (`
+                + `SELECT id FROM address WHERE updated_at < datetime('now', '-${cleanDays} day') `
+                + `ORDER BY updated_at, id LIMIT ${cleanupBatchSize})`
             )
             break;
         case "addressCreated":
             await batchDeleteAddressWithData(
                 c,
-                `created_at < datetime('now', '-${cleanDays} day')`
+                `id IN (`
+                + `SELECT id FROM address WHERE created_at < datetime('now', '-${cleanDays} day') `
+                + `ORDER BY created_at, id LIMIT ${cleanupBatchSize})`
             )
             break;
         case "unboundAddress":
@@ -493,8 +537,13 @@ export const cleanup = async (
             break;
         case "mails":
             await c.env.DB.prepare(`
-                DELETE FROM raw_mails WHERE created_at < datetime('now', '-${cleanDays} day')`
-            ).run();
+                DELETE FROM raw_mails WHERE id IN (
+                    SELECT id FROM raw_mails
+                    WHERE created_at < datetime('now', ?)
+                    ORDER BY created_at, id
+                    LIMIT ?
+                )`
+            ).bind(`-${cleanDays} day`, cleanupBatchSize).run();
             break;
         case "mails_unknow":
             await c.env.DB.prepare(`
@@ -504,8 +553,13 @@ export const cleanup = async (
             break;
         case "sendbox":
             await c.env.DB.prepare(`
-                DELETE FROM sendbox WHERE created_at < datetime('now', '-${cleanDays} day')`
-            ).run();
+                DELETE FROM sendbox WHERE id IN (
+                    SELECT id FROM sendbox
+                    WHERE created_at < datetime('now', ?)
+                    ORDER BY created_at, id
+                    LIMIT ?
+                )`
+            ).bind(`-${cleanDays} day`, cleanupBatchSize).run();
             break;
         case "emptyAddress":
             // Delete addresses that have no emails and were created more than N days ago
@@ -760,13 +814,13 @@ export const commonGetUserRole = async (
 export const getAddressPrefix = async (c: Context<HonoCustomType>): Promise<string | undefined> => {
     const user = c.get("userPayload");
     if (!user) {
-        return getStringValue(c.env.PREFIX).trim().toLowerCase();
+        return trimLower(c.env.PREFIX);
     }
     const user_role = await commonGetUserRole(c, user.user_id);
     if (typeof user_role?.prefix === "string") {
-        return user_role.prefix.trim().toLowerCase();
+        return trimLower(user_role.prefix);
     }
-    return getStringValue(c.env.PREFIX).trim().toLowerCase();
+    return trimLower(c.env.PREFIX);
 }
 
 export const getAllowDomains = async (c: Context<HonoCustomType>): Promise<string[]> => {
@@ -775,29 +829,23 @@ export const getAllowDomains = async (c: Context<HonoCustomType>): Promise<strin
         return getDefaultDomains(c);
     }
     const user_role = await commonGetUserRole(c, user.user_id);
-    return user_role?.domains || getDefaultDomains(c);;
+    if (user_role?.domains && user_role.domains.length > 0) {
+        return normalizeDomains(user_role.domains);
+    }
+    return getDefaultDomains(c);
 }
 
 export async function sendWebhook(
     settings: WebhookSettings, formatMap: WebhookMail
 ): Promise<{ success: boolean, message?: string }> {
     // send webhook
-    let body = settings.body;
-    for (const key of Object.keys(formatMap)) {
-        body = body.replace(
-            new RegExp(`\\$\\{${key}\\}`, "g"),
-            JSON.stringify(
-                formatMap[key as keyof WebhookMail]
-            ).replace(/^"(.*)"$/, '$1')
-        );
-    }
+    const body = formatWebhookBody(settings.body, formatMap);
     const response = await fetch(settings.url, {
         method: settings.method,
         headers: JSON.parse(settings.headers),
         body: body
     });
     if (!response.ok) {
-        console.log("send webhook error", settings.url, settings.method, settings.headers, body);
         console.log("send webhook error", response.status, response.statusText);
         return { success: false, message: `send webhook error: ${response.status} ${response.statusText}` };
     }
@@ -808,7 +856,8 @@ export async function triggerWebhook(
     c: Context<HonoCustomType>,
     address: string,
     parsedEmailContext: ParsedEmailContext,
-    message_id: string | null
+    storedMailId: number | undefined,
+    aiExtract?: ExtractResult | null
 ): Promise<void> {
     if (!c.env.KV || !getBooleanValue(c.env.ENABLE_WEBHOOK)) {
         return
@@ -836,20 +885,32 @@ export async function triggerWebhook(
     if (webhookList.length === 0) {
         return
     }
-    const mailId = await c.env.DB.prepare(
-        `SELECT id FROM raw_mails where address = ? and message_id = ?`
-    ).bind(address, message_id).first<string>("id");
+    const mailRow = storedMailId ? await c.env.DB.prepare(
+        `SELECT id, address, created_at FROM raw_mails WHERE id = ? AND address = ?`
+    ).bind(storedMailId, address).first<{ id: number, address: string, created_at: string }>() : null;
+    const mailId = String(mailRow?.id || '');
 
     const parsedEmail = await commonParseMail(parsedEmailContext);
+    const needsAttachments = webhookList.some(settings => settings.body.includes('${attachment'));
+    const attachments = needsAttachments
+        ? await getWebhookAttachments(c.env, mailRow, parsedEmail?.attachments) : [];
+    const usableAiExtract = aiExtract?.type !== "none" && aiExtract?.result
+        ? aiExtract
+        : null;
     const webhookMail = {
         id: mailId || "",
         url: c.env.FRONTEND_URL ? `${c.env.FRONTEND_URL}?mail_id=${mailId}` : "",
+        attachments,
         from: parsedEmail?.sender || "",
         to: address,
         subject: parsedEmail?.subject || "",
         raw: parsedEmailContext.rawEmail || "",
         parsedText: parsedEmail?.text || "",
         parsedHtml: parsedEmail?.html || "",
+        aiExtract: usableAiExtract,
+        aiExtractType: usableAiExtract?.type || "",
+        aiExtractResult: usableAiExtract?.result || "",
+        aiExtractResultText: usableAiExtract?.result_text || "",
     }
     for (const settings of webhookList) {
         const res = await sendWebhook(settings, webhookMail);

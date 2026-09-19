@@ -9,7 +9,7 @@ import {
     AdminPanelSettingsFilled, MonitorHeartFilled,
     KeyboardArrowDownOutlined, OpenInNewOutlined
 } from '@vicons/material'
-import { GithubAlt, Language, User, Home } from '@vicons/fa'
+import { Envelope, GithubAlt, Language, User } from '@vicons/fa'
 
 import { useGlobalState } from '../store'
 import { api } from '../api'
@@ -103,6 +103,11 @@ const changeLocale = async (lang) => {
 }
 
 const version = import.meta.env.PACKAGE_VERSION ? `v${import.meta.env.PACKAGE_VERSION}` : "";
+const showGithubForCurrentUser = computed(() => {
+    if (!openSettings.value.showGithub) return false;
+    if (openSettings.value.showGithubForUser) return true;
+    return showAdminPage.value;
+});
 
 const menuOptions = computed(() => [
     {
@@ -118,8 +123,8 @@ const menuOptions = computed(() => [
                 }
             },
             {
-                default: () => t('home'),
-                icon: () => h(NIcon, { component: Home })
+                default: () => t('mailbox'),
+                icon: () => h(NIcon, { component: Envelope })
             }),
         key: "home"
     },
@@ -137,7 +142,7 @@ const menuOptions = computed(() => [
                 }
             },
             {
-                default: () => t('user'),
+                default: () => t('userCenter'),
                 icon: () => h(NIcon, { component: User }),
             }
         ),
@@ -160,7 +165,7 @@ const menuOptions = computed(() => [
                 }
             },
             {
-                default: () => "Admin",
+                default: () => t('admin'),
                 icon: () => h(NIcon, { component: AdminPanelSettingsFilled }),
             }
         ),
@@ -270,7 +275,7 @@ onMounted(async () => {
                         </n-button>
                     </n-dropdown>
                     <n-button
-                        v-if="!isMobile && openSettings.showGithub"
+                        v-if="!isMobile && showGithubForCurrentUser"
                         text
                         size="small"
                         class="header-version-button"
@@ -298,7 +303,7 @@ onMounted(async () => {
                         </button>
                     </n-dropdown>
                     <a
-                        v-if="openSettings.showGithub"
+                        v-if="showGithubForCurrentUser"
                         class="mobile-menu-utility-button"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -326,6 +331,32 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+:deep(.n-page-header) {
+    align-items: center;
+    flex-wrap: nowrap;
+}
+
+:deep(.n-page-header__main) {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
+:deep(.n-page-header__title) {
+    min-width: 0;
+    overflow: hidden;
+}
+
+:deep(.n-page-header__title h3) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:deep(.n-page-header__extra) {
+    flex: 0 0 auto;
+}
+
 .n-layout-header {
     display: flex;
     align-items: center;
@@ -430,15 +461,20 @@ onMounted(async () => {
 }
 
 @media (max-width: 640px) {
+    :deep(.n-page-header) {
+        padding: 10px 12px;
+    }
+
     :deep(.n-page-header__title) {
         min-width: 0;
     }
 
     :deep(.n-page-header__title h3) {
-        max-width: calc(100vw - 136px);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        max-width: calc(100vw - 104px);
+        margin: 0;
+        font-size: clamp(16px, 5vw, 20px);
+        line-height: 1.2;
     }
 }
+
 </style>

@@ -24,6 +24,7 @@ export const useGlobalState = createGlobalState(
             disableAnonymousUserCreateEmail: false,
             disableCustomAddressName: false,
             enableUserDeleteEmail: false,
+            enableMailReadStatus: false,
             enableAutoReply: false,
             enableIndexAbout: false,
             /** @type {string[]} */
@@ -38,9 +39,12 @@ export const useGlobalState = createGlobalState(
             isS3Enabled: false,
             enableSendMail: false,
             showGithub: true,
+            showGithubForUser: true,
             disableAdminPasswordCheck: false,
             enableAddressPassword: false,
             enableAgentEmailInfo: false,
+            enableRedeemCode: false,
+            redeemCodeUrl: '',
             smtpImapProxyConfig: {
                 smtp: {
                     host: '',
@@ -87,6 +91,8 @@ export const useGlobalState = createGlobalState(
         const adminMailTabAddress = ref("");
         const adminSendBoxTabAddress = ref("");
         const mailboxSplitSize = useStorage('mailboxSplitSize', 0.25);
+        const mailListView = useStorage('mailListView', false);
+        const mailListPreviewLineClamp = useStorage('mailListPreviewLineClamp', 2);
         const useIframeShowMail = useStorage('useIframeShowMail', false);
         const preferShowTextMail = useStorage('preferShowTextMail', false);
         const userJwt = useStorage('userJwt', '');
@@ -96,6 +102,7 @@ export const useGlobalState = createGlobalState(
         const globalTabplacement = useStorage('globalTabplacement', 'top');
         const useSideMargin = useStorage('useSideMargin', true);
         const useUTCDate = useStorage('useUTCDate', false);
+        const autoLoadRemoteImages = useStorage('autoLoadRemoteImages', true);
         const autoRefresh = useStorage('autoRefresh', false);
         const configAutoRefreshInterval = useStorage("configAutoRefreshInterval", 60);
         const userOpenSettings = ref({
@@ -159,6 +166,8 @@ export const useGlobalState = createGlobalState(
             adminMailTabAddress,
             adminSendBoxTabAddress,
             mailboxSplitSize,
+            mailListView,
+            mailListPreviewLineClamp,
             useIframeShowMail,
             preferShowTextMail,
             userJwt,
@@ -170,6 +179,7 @@ export const useGlobalState = createGlobalState(
             globalTabplacement,
             useSideMargin,
             useUTCDate,
+            autoLoadRemoteImages,
             autoRefresh,
             configAutoRefreshInterval,
             telegramApp,

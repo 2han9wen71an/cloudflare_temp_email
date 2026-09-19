@@ -1,5 +1,5 @@
 <script setup>
-import { ref, h, onMounted } from 'vue';
+import { ref, h, onMounted, watch } from 'vue';
 import { useScopedI18n } from '@/i18n/app'
 import { useRouter } from 'vue-router';
 import { NBadge, NPopconfirm, NButton } from 'naive-ui'
@@ -7,6 +7,7 @@ import { NBadge, NPopconfirm, NButton } from 'naive-ui'
 import { useGlobalState } from '../../store'
 import { api } from '../../api'
 import { getRouterPathWithLang } from '../../utils'
+import AddressCredentialModal from '../../components/AddressCredentialModal.vue'
 
 import Login from '../common/Login.vue';
 
@@ -15,17 +16,34 @@ const message = useMessage()
 const router = useRouter()
 
 const { locale, t } = useScopedI18n('views.user.AddressManagement')
+const { t: credentialT } = useScopedI18n('components.AddressCredentialModal')
 
 const data = ref([])
+const count = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
 const showTranferAddress = ref(false)
 const currentAddress = ref("")
 const currentAddressId = ref(0)
 const targetUserEmail = ref('')
+const showAddressCredential = ref(false)
+const currentAddressCredential = ref('')
+const credentialAddress = ref('')
+
+const showCredential = async (row) => {
+    try {
+        const { jwt: addressCredential } = await api.fetch(`/user_api/bind_address_jwt/${row.id}`)
+        currentAddressCredential.value = addressCredential
+        credentialAddress.value = row.name
+        showAddressCredential.value = true
+    } catch (error) {
+        message.error(error.message || "error")
+    }
+}
 
 const changeMailAddress = async (address_id) => {
     try {
         const res = await api.fetch(`/user_api/bind_address_jwt/${address_id}`);
-        message.success(t('changeMailAddress') + " " + t('success'));
         if (!res.jwt) {
             message.error("jwt not found");
             return;
@@ -46,7 +64,11 @@ const unbindAddress = async (address_id) => {
             body: JSON.stringify({ address_id })
         });
         message.success(t('unbindAddress') + " " + t('success'));
-        await fetchData();
+        if (page.value === 1) {
+            await fetchData();
+        } else {
+            page.value = 1;
+        }
     } catch (error) {
         console.log(error)
         message.error(error.message || "error");
@@ -71,7 +93,11 @@ const transferAddress = async () => {
             })
         });
         message.success(t('transferAddress') + " " + t('success'));
-        await fetchData();
+        if (page.value === 1) {
+            await fetchData();
+        } else {
+            page.value = 1;
+        }
         showTranferAddress.value = false;
         currentAddressId.value = 0;
         currentAddress.value = "";
@@ -84,10 +110,17 @@ const transferAddress = async () => {
 
 const fetchData = async () => {
     try {
-        const { results } = await api.fetch(
-            `/user_api/bind_address`
+        const params = new URLSearchParams({
+            limit: String(pageSize.value),
+            offset: String((page.value - 1) * pageSize.value),
+        });
+        const { results, count: addressCount } = await api.fetch(
+            `/user_api/bind_address?${params.toString()}`
         );
         data.value = results;
+        if (page.value === 1) {
+            count.value = addressCount;
+        }
     } catch (error) {
         console.log(error)
         message.error(error.message || "error");
@@ -96,7 +129,7 @@ const fetchData = async () => {
 
 const columns = [
     {
-        title: t('name'),
+        title: t('emailAddress'),
         key: "name"
     },
     {
@@ -128,6 +161,14 @@ const columns = [
         key: 'actions',
         render(row) {
             return h('div', [
+                h(NButton,
+                    {
+                        tertiary: true,
+                        type: "primary",
+                        onClick: () => showCredential(row)
+                    },
+                    { default: () => credentialT('addressCredential') }
+                ),
                 h(NPopconfirm,
                     {
                         onPositiveClick: () => changeMailAddress(row.id)
@@ -138,9 +179,9 @@ const columns = [
                                 tertiary: true,
                                 type: "primary",
                             },
-                            { default: () => t('changeMailAddress') }
+                            { default: () => t('openMailbox') }
                         ),
-                        default: () => `${t('changeMailAddress')}?`
+                        default: () => `${t('openMailbox')}?`
                     }
                 ),
                 h(NButton,
@@ -178,10 +219,16 @@ const columns = [
 onMounted(async () => {
     await fetchData()
 })
+
+watch([page, pageSize], async () => {
+    await fetchData();
+})
 </script>
 
 <template>
     <div>
+        <AddressCredentialModal v-model:show="showAddressCredential" :address="credentialAddress"
+            :jwt="currentAddressCredential" />
         <n-modal v-model:show="showTranferAddress" preset="dialog" :title="t('transferAddress')">
             <span>
                 <p>{{ t("transferAddressTip") }}</p>
@@ -197,6 +244,12 @@ onMounted(async () => {
         <n-tabs type="segment">
             <n-tab-pane name="address" :tab="t('address')">
                 <div class="address-table-scroll">
+                    <n-pagination v-model:page="page" v-model:page-size="pageSize" :item-count="count"
+                        :page-sizes="[20, 50, 100]" show-size-picker>
+                        <template #prefix="{ itemCount }">
+                            {{ t('itemCount') }}: {{ itemCount }}
+                        </template>
+                    </n-pagination>
                     <n-data-table :columns="columns" :data="data" :bordered="false" embedded />
                 </div>
             </n-tab-pane>
@@ -215,5 +268,10 @@ onMounted(async () => {
 .address-table-scroll {
     max-width: 100%;
     overflow-x: auto;
+}
+
+.n-pagination {
+    margin-top: 10px;
+    margin-bottom: 10px;
 }
 </style>

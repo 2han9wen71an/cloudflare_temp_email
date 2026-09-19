@@ -97,7 +97,7 @@ const buildLocalOptions = (excludeAddresses = new Set()) => {
 const buildUserOptions = async () => {
     const children = [];
     try {
-        const { results } = await api.fetch(`/user_api/bind_address`);
+        const { results } = await api.fetch(`/user_api/bind_address?limit=100&offset=0`);
         for (const row of results || []) {
             const address = row.address || row.name;
             if (!address) continue;
@@ -153,7 +153,7 @@ const refreshAddressOptions = async () => {
         if (userJwt.value) {
             const userChildren = await buildUserOptions();
             if (userChildren.length > 0) {
-                groups.push({ type: 'group', label: t('userAddresses'), children: userChildren });
+                groups.push({ type: 'group', label: t('linkedMailboxes'), children: userChildren });
             }
             const userAddressSet = new Set(userChildren.map((item) => item.address));
             const localChildren = buildLocalOptions(userAddressSet);
@@ -215,7 +215,7 @@ watch([userJwt, isTelegram, () => settings.value.address], async () => {
 <template>
     <n-flex class="address-row" align="center" justify="center" :wrap="true">
         <n-select v-model:value="addressValue" :options="addressOptions" :size="size" filterable
-            :loading="addressLoading" :placeholder="t('address')" @update:value="onAddressChange"
+            :loading="addressLoading" :placeholder="t('selectMailbox')" @update:value="onAddressChange"
             class="address-select" />
         <slot name="actions" />
         <n-button v-if="showCopy" class="address-copy" @click="copy" :size="size" tertiary type="primary">
