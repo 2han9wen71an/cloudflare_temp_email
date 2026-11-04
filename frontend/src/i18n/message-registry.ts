@@ -203,9 +203,26 @@ export const MESSAGE_REGISTRY = {
     }
   },
   "components.MailContentRenderer": {
+    "from": {
+      "en": "From",
+      "zh": "发件人"
+    },
+    "to": {
+      "en": "To",
+      "zh": "收件人"
+    },
+    "mailDetails": {
+      "en": "Mail details",
+      "zh": "邮件详情"
+    },
+    "moreActions": {
+      "en": "More actions",
+      "zh": "更多操作"
+    },
+    "more": { "en": "More", "zh": "更多" },
     "attachments": {
-      "en": "View Attachments",
-      "zh": "查看附件"
+      "en": "Attachments",
+      "zh": "附件"
     },
     "delete": {
       "en": "Delete",
@@ -374,6 +391,14 @@ export const MESSAGE_REGISTRY = {
     "autoLoginLink": {
       "en": "Auto-login link",
       "zh": "自动登录链接"
+    },
+    "autoLoginQrCode": {
+      "en": "Scan to open on mobile",
+      "zh": "手机扫码打开"
+    },
+    "autoLoginQrCodeTip": {
+      "en": "Anyone with this QR code can access this mailbox. Do not share it.",
+      "zh": "任何获取此二维码的人都可以访问该邮箱，请勿分享。"
     },
     "copyFailed": {
       "en": "Copy failed",

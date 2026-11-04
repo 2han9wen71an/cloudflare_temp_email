@@ -10,6 +10,7 @@
 | `DOMAINS`                  | JSON        | 用于临时邮箱的所有域名, 支持多个域名       | `["awsl.uk", "dreamhunter2333.xyz"]` |
 | `JWT_SECRET`               | 文本/Secret | 用于签名 JWT 的密钥，JWT 用于登录鉴权。请使用随机字符串，例如通过 `openssl rand -hex 32` 生成  | `a1b2c3d4...`                        |
 | `ADMIN_PASSWORDS`          | JSON        | admin 控制台密码, 不配置则不允许访问控制台 | `["123", "456"]`                     |
+| `DISABLE_USER_SYSTEM` | 文本/JSON | 拦截用户系统接口，隐藏前端用户界面；默认关闭 | `true` |
 | `ENABLE_USER_CREATE_EMAIL` | 文本/JSON   | 是否允许用户创建邮箱, 不配置则不允许       | `true`                               |
 | `ENABLE_USER_DELETE_EMAIL` | 文本/JSON   | 是否允许用户删除邮件, 不配置则不允许       | `true`                               |
 | `ENABLE_MAIL_READ_STATUS` | 文本/JSON | 启用邮件已读/未读状态。启用前需要升级数据库 Schema | `true` |
@@ -50,6 +51,7 @@
 | `ENABLE_AUTO_REPLY`                   | 文本/JSON | 允许自动回复邮件。发件人过滤（`source_prefix`）支持三种模式：留空匹配所有发件人、填写前缀进行 `startsWith` 匹配、使用 `/regex/` 语法进行正则匹配（如 `/@example\.com$/`） | `true`                                    |
 | `DEFAULT_SEND_BALANCE`                | 文本/JSON | 默认发送邮件余额；当值大于 `0` 时，用户打开前端设置页或首次发送邮件时会自动初始化该额度。如果不设置，将为 `0`                                                                                              | `1`                                       |
 | `ENABLE_ADDRESS_PASSWORD`             | 文本/JSON | 启用邮箱地址密码功能，启用后创建新地址时会自动生成密码，并支持密码登录和修改                                                      | `true`                                    |
+| `ADDRESS_PASSWORD_LOGIN_ONLY` | 文本/JSON | 默认 `false`，仅在 `ENABLE_ADDRESS_PASSWORD=true` 时生效；登录页只显示密码登录并隐藏凭据登录切换按钮。当前仅控制登录页，旧凭据、登录链接和 API 访问仍可使用，不改变 JWT 时效 | `true` |
 | `ENABLE_AGENT_EMAIL_INFO`             | 文本/JSON | 是否在前端“地址凭证与连接方式”弹窗中展示 AI Agent 接入信息（Address JWT、parsed-mail API、skill 链接）                         | `true`                                    |
 | `SMTP_IMAP_PROXY_CONFIG`              | JSON      | 在前端“地址凭证与连接方式”弹窗中展示 SMTP/IMAP 代理连接信息；仅用于展示给用户，不会启动代理服务，代理服务仍需单独部署           | 见下方示例                                |
 | `SEND_MAIL_DOMAINS`                   | JSON      | 限制 `SEND_MAIL` binding 可用于哪些发件域名；留空或不配置时允许所有域名                                                            | `["example.com", "mail.example.com"]`     |
@@ -104,7 +106,7 @@
 | `REMOVE_EXCEED_SIZE_ATTACHMENT` | 文本/JSON | 如果附件大小超过 2MB，则删除附件，邮件可能由于解析而丢失一些信息           | `true`                     |
 | `REMOVE_ALL_ATTACHMENT`         | 文本/JSON | 移除所有附件，邮件可能由于解析而丢失一些信息                               | `true`                     |
 | `ENABLE_MAIL_GZIP`             | 文本/JSON | 启用后新邮件将 Gzip 压缩存储到 `raw_blob` 字段，可节省 D1 数据库空间。已有明文 `raw` 数据自动兼容读取。**启用前请先执行数据库迁移（`Admin -> 快速设置 -> 数据库 -> 升级数据库 Schema` 或 `POST /admin/db_migration`），确保 `raw_blob` 列已创建。该功能会增加压缩/解压 CPU 开销，建议使用 Cloudflare Worker 付费 Plan 再开启。** | `true`                     |
-| `CLEANUP_BATCH_SIZE`           | 数字      | 邮件、发件箱及按创建/活跃时间清理地址时的单次处理上限，默认 `3000`，有效范围 `1-5000`。较小值可降低单次 D1 压力，较大值可加快积压数据清理 | `3000` |
+| `CLEANUP_BATCH_SIZE`           | 数字      | 内置邮件、发件箱及地址清理任务的单次处理上限，默认 `3000`，有效范围 `1-5000`。较小值可降低单次 D1 压力，较大值可加快积压数据清理 | `3000` |
 
 > [!NOTE]
 > 认证结果遵循各自规范：SPF `none` 表示没有可检查的域名或 SPF 记录，SPF `neutral` 必须与 `none` 相同处理；DKIM `none` 表示邮件未签名，DKIM `neutral` 同样按未签名处理；DMARC `none` 表示没有适用的 DMARC 策略。未注册结果和不支持的方法版本也会被忽略。`JUNK_MAIL_CHECK_LIST` 将这些结果视为认证方法不存在，`JUNK_MAIL_FORCE_PASS_LIST` 仍只接受明确且受支持的 `pass`
