@@ -1,3 +1,4 @@
+
 name: Upstream Sync
 
 on:
@@ -5,16 +6,25 @@ on:
     - cron: "0 0 * * 1"
   workflow_dispatch:
 
+# The built-in GITHUB_TOKEN does not need write access.
+permissions: {}
+
+concurrency:
+  group: upstream-sync-main
+  cancel-in-progress: false
+
 jobs:
   sync_latest_from_upstream:
     name: Sync latest commits from upstream repo
     runs-on: ubuntu-latest
     if: ${{ github.event.repository.fork }}
-    permissions:
-      contents: write
 
     steps:
       - name: Sync upstream changes
-        run: gh repo sync ${{ github.repository }} --source dreamhunter2333/cloudflare_temp_email --branch main
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh repo sync "$GITHUB_REPOSITORY" \
+            --source dreamhunter2333/cloudflare_temp_email \
+            --branch main
